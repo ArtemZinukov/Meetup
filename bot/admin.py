@@ -3,5 +3,5 @@ from .models import BotUser
 
 @admin.register(BotUser)
 class BotUserAdmin(admin.ModelAdmin):
-    list_display = ('telegram_id', 'role')  # Поля, которые будут отображаться в списке
+    list_display = ('telegram_id', 'role')
     search_fields = ('telegram_id',)
