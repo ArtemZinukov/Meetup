@@ -5,14 +5,16 @@ import os
 import django
 from environs import Env
 
+# Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
-from .models import BotUser, users, events
+from .models import BotUser
 
 
 def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text("Привет! Я бот для мероприятия. Узнайте о функционале, написав /help.")
+    update.message.reply_text("Привет! Я бот для мероприятия. Для регистрации пропишите /register."
+                              "Чтобы узнать о функционале, напишите /help.")
 
 
 def help_command(update: Update, context: CallbackContext) -> None:
@@ -28,8 +30,11 @@ def help_command(update: Update, context: CallbackContext) -> None:
 
 def register_user(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    if user_id not in users:
-        users[user_id] = BotUser(telegram_id=user_id, role='listener')
+
+
+    if not BotUser.objects.filter(telegram_id=user_id).exists():
+        user = BotUser(telegram_id=user_id, role='listener')
+        user.save()
         update.message.reply_text("Вы зарегистрированы как слушатель.")
     else:
         update.message.reply_text("Вы уже зарегистрированы.")
@@ -42,7 +47,7 @@ def get_schedule(update: Update, context: CallbackContext) -> None:
 
 def ask_question(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    if user_id in users:
+    if BotUser.objects.filter(telegram_id=user_id).exists():
         question = ' '.join(context.args)
         if question:
             events.speakers[-1].questions.append((user_id, question))
@@ -55,18 +60,16 @@ def ask_question(update: Update, context: CallbackContext) -> None:
 
 def donate(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    if user_id in users:
+    if BotUser.objects.filter(telegram_id=user_id).exists():
         amount = context.args[0] if context.args else "не указана"
         events.donations.append((user_id, amount))
         update.message.reply_text(f"Спасибо за поддержку! Вы пожертвовали {amount}.")
 
 
 def main() -> None:
-
     env = Env()
     env.read_env()
     token = env.str("TG_BOT_TOKEN")
-
 
     updater = Updater(token)
 
