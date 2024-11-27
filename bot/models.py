@@ -15,7 +15,7 @@ class BotUser(models.Model):
         choices=ROLE_CHOICES,
         default='listener',
         verbose_name='Роль')
-    name = models.CharField(max_length=255, verbose_name='Имя')
+    name = models.CharField(max_length=255, verbose_name='Имя', blank=True)
     consent_given = models.BooleanField(
         default=False,
         verbose_name='Согласие на обработку данных',
@@ -23,9 +23,7 @@ class BotUser(models.Model):
     age = models.PositiveIntegerField(
         verbose_name='Возраст',
         null=True, blank=True)
-    about_myself = models.TextField(
-        verbose_name='О себе',
-        null=True, blank=True)
+    about_myself = models.TextField(verbose_name='О себе', blank=True)
     is_active_speaker = models.BooleanField(
             default=False,
             verbose_name='Статус активного спикера',)
@@ -45,7 +43,7 @@ class Event(models.Model):
         max_length=255)
     description = models.TextField(
         verbose_name='Описание выступления',
-        null=True, blank=True)
+        blank=True)
     start_time = models.DateTimeField(
         verbose_name='Запланированное время - начало')
     end_time = models.DateTimeField(
