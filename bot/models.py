@@ -10,7 +10,7 @@ class BotUser(models.Model):
     telegram_id = models.BigIntegerField(
         unique=True,
         verbose_name='Telegram ID')
-    username = models.CharField(verbose_name='Username', max_length=255)
+    username = models.CharField(verbose_name='Username', max_length=255, default='Без юзернейма')
     role = models.CharField(
         max_length=10,
         choices=ROLE_CHOICES,
