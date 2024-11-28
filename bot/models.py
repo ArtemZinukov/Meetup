@@ -91,6 +91,9 @@ class Schedule(models.Model):
     def __str__(self):
         return f'{self.start_time} - {self.user} - {self.event}'
 
+    class Meta:
+        verbose_name = 'Расписание'
+        verbose_name_plural = 'Расписание'
 
 class Donation(models.Model):
     user = models.ForeignKey(BotUser, on_delete=models.CASCADE)
