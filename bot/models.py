@@ -10,6 +10,7 @@ class BotUser(models.Model):
     telegram_id = models.BigIntegerField(
         unique=True,
         verbose_name='Telegram ID')
+    username = models.CharField(verbose_name='Username', max_length=255)
     role = models.CharField(
         max_length=10,
         choices=ROLE_CHOICES,
@@ -24,9 +25,7 @@ class BotUser(models.Model):
         verbose_name='Возраст',
         null=True, blank=True)
     about_myself = models.TextField(verbose_name='О себе', blank=True)
-    is_active_speaker = models.BooleanField(
-            default=False,
-            verbose_name='Статус активного спикера',)
+
 
     def __str__(self):
         return f"{self.telegram_id} - {self.get_role_display()} - {self.name}"
@@ -52,6 +51,9 @@ class Event(models.Model):
         BotUser,
         on_delete=models.CASCADE,
         related_name='speaking_events')
+    is_active_event = models.BooleanField(
+            default=False,
+            verbose_name='Статус активного спикера',)
 
     def __str__(self):
         return f'{self.speaker} - {self.name}'
@@ -71,13 +73,6 @@ class Question(models.Model):
     user = models.ForeignKey(BotUser, on_delete=models.CASCADE)
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     text = models.TextField(verbose_name='Вопрос')
-    asked_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='new',
-        verbose_name='Статус вопроса',
-    )
 
     def __str__(self):
         return f'{self.user} - {self.event}'
@@ -85,6 +80,16 @@ class Question(models.Model):
     class Meta:
         verbose_name = 'Вопрос'
         verbose_name_plural = 'Вопросы'
+
+
+class Schedule(models.Model):
+    start_time = models.DateTimeField(verbose_name='Время начала события')
+    end_time = models.DateTimeField(verbose_name='Время окончания события')
+    user = models.ForeignKey(BotUser, on_delete=models.CASCADE)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f'{self.start_time} - {self.user} - {self.event}'
 
 
 class Donation(models.Model):
