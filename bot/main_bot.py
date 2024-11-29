@@ -1,6 +1,5 @@
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from .models import BotUser
 
 from django.conf import settings
 import os
@@ -10,6 +9,7 @@ from environs import Env
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
+from .models import BotUser
 
 def start(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
@@ -101,12 +101,15 @@ def handle_callback(update: Update, context: CallbackContext):
 #         update.message.reply_text("Сначала зарегистрируйтесь с помощью /register.")
 
 
-# def donate(update: Update, context: CallbackContext) -> None:
-#     user_id = update.message.from_user.id
-#     if BotUser.objects.filter(telegram_id=user_id).exists():
-#         amount = context.args[0] if context.args else "не указана"
-#         events.donations.append((user_id, amount))
-#         update.message.reply_text(f"Спасибо за поддержку! Вы пожертвовали {amount}.")
+def donate(update: Update, context: CallbackContext) -> None:
+    speakers = BotUser.objects.filter(role='speaker')
+    keyboard = []
+    for speaker in speakers:
+        keyboard.append(
+            [InlineKeyboardButton(f"{speaker.name} - {speaker.username}", callback_data=f'donate_{speaker.id}')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("Выберите спикера для доната:", reply_markup=reply_markup)
+
 
 
 def main() -> None:
