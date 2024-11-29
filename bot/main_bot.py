@@ -1,43 +1,85 @@
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext, MessageHandler, Filters
-# from django.conf import settings
-# import os
-# import django
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from .models import BotUser
+
+from django.conf import settings
+import os
+import django
 from environs import Env
 
-# # Настройка Django
-# os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
-# django.setup()
-
-# from .models import BotUser, Event, Question, Donation
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
+django.setup()
 
 
 def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text("Привет! Я бот для мероприятия. Для регистрации пропишите /register."
-                              "Чтобы узнать о функционале, напишите /help.")
+    telegram_id = update.effective_user.id
+    username = update.effective_user.username
+
+    user, created = BotUser.objects.get_or_create(
+        telegram_id=telegram_id,
+        defaults={'role': 'listener'}
+    )
+
+    if created:
+        update.message.reply_text(
+            "Приветствуем вас на мероприятии Meetup! "
+            "Вы зарегистрированы как слушатель. Вы можете задать вопросы спикерам, участвовать в нетворкинге, "
+            "а также поддержать мероприятие с помощью донатов."
+        )
+    else:
+        if user.role == 'listener':
+            send_listener_welcome(update, context, user)
+        elif user.role == 'speaker':
+            send_speaker_welcome(update, context, user)
 
 
-def help_command(update: Update, context: CallbackContext) -> None:
+def send_listener_welcome(update: Update, context: CallbackContext, user: BotUser):
+    keyboard = [
+        [InlineKeyboardButton("Задать вопрос", callback_data="ask_question")],
+        [InlineKeyboardButton("Посмотреть программу", callback_data="view_program")],
+        [InlineKeyboardButton("Знакомства", callback_data="networking")],
+        [InlineKeyboardButton("Поддержать мероприятие", callback_data="donate")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     update.message.reply_text(
-        "Я могу помочь вам:\n"
-        "- Узнать о мероприятии\n"
-        "- Задать вопрос докладчику\n"
-        "- Получить программу мероприятия\n"
-        "- Познакомиться с другими разработчиками\n"
-        "- Поддержать организатора\n"
+        f"Добро пожаловать, {user.name}! "
+        "Вы можете задавать вопросы спикерам, участвовать в знакомствах и следить за программой мероприятия.\n\n"
+        "Выберите, что вы хотите сделать:",
+        reply_markup=reply_markup
     )
 
 
-# def register_user(update: Update, context: CallbackContext) -> None:
-#     user_id = update.message.from_user.id
-#
-#
-#     if not BotUser.objects.filter(telegram_id=user_id).exists():
-#         user = BotUser(telegram_id=user_id, role='listener')
-#         user.save()
-#         update.message.reply_text("Вы зарегистрированы как слушатель.")
-#     else:
-#         update.message.reply_text("Вы уже зарегистрированы.")
+def send_speaker_welcome(update: Update, context: CallbackContext, user: BotUser):
+    # Кнопки для спикера
+    keyboard = [
+        [InlineKeyboardButton("Ответить на вопросы", callback_data="answer_questions")],
+        [InlineKeyboardButton("Посмотреть программу", callback_data="view_program")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    update.message.reply_text(
+        f"Добро пожаловать, {user.name}! "
+        "Вы зарегистрированы как спикер.\n\n"
+        "Вам доступны следующие действия:",
+        reply_markup=reply_markup
+    )
+
+
+def handle_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    if query.data == "ask_question":
+        query.edit_message_text("Напишите ваш вопрос. Укажите тему и содержание.")
+    elif query.data == "view_program":
+        query.edit_message_text("Программа мероприятия:\n1. Открытие\n2. Первый доклад\n...")
+    elif query.data == "networking":
+        query.edit_message_text("Сейчас загрузим анкеты для знакомств...")
+    elif query.data == "donate":
+        query.edit_message_text("Вы можете поддержать мероприятие. Переведите сумму на счет...")
+    elif query.data == "answer_questions":
+        query.edit_message_text("Сейчас загрузим вопросы, поступившие от слушателей...")
 
 
 # def get_schedule(update: Update, context: CallbackContext) -> None:
@@ -78,7 +120,7 @@ def main() -> None:
 
     dispatcher.add_handler(CommandHandler("start", start))
 
-    dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 
     # dispatcher.add_handler(CommandHandler("register", register_user))
     #
