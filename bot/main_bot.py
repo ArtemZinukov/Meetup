@@ -1,15 +1,21 @@
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 
 from django.conf import settings
 import os
 import django
 from environs import Env
+import uuid
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
-from .models import BotUser
+from .models import BotUser, Donation
+from yookassa import Configuration, Payment
+
+Configuration.configure(settings.YOOKASSA_SHOP_ID,
+                        settings.YOOKASSA_SECRET_KEY)
+
 
 def start(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
@@ -51,7 +57,6 @@ def send_listener_welcome(update: Update, context: CallbackContext, user: BotUse
 
 
 def send_speaker_welcome(update: Update, context: CallbackContext, user: BotUser):
-    # Кнопки для спикера
     keyboard = [
         [InlineKeyboardButton("Ответить на вопросы", callback_data="answer_questions")],
         [InlineKeyboardButton("Посмотреть программу", callback_data="view_program")],
@@ -77,28 +82,13 @@ def handle_callback(update: Update, context: CallbackContext):
     elif query.data == "networking":
         query.edit_message_text("Сейчас загрузим анкеты для знакомств...")
     elif query.data == "donate":
-        query.edit_message_text("Вы можете поддержать мероприятие. Переведите сумму на счет...")
+        donate(update, context)
+    elif query.data.startswith("donate_"):
+        speaker_id = query.data.split("_")[1]
+        context.user_data['speaker_id'] = speaker_id
+        query.edit_message_text("Сколько вы хотите задонатить? Пожалуйста, укажите сумму в рублях.")
     elif query.data == "answer_questions":
         query.edit_message_text("Сейчас загрузим вопросы, поступившие от слушателей...")
-
-
-# def get_schedule(update: Update, context: CallbackContext) -> None:
-#     events = Event.objects.all()
-    # schedule_text = "Программа мероприятия:\n" + "\n".join(events.schedule)
-    # update.message.reply_text(schedule_text)
-
-
-# def ask_question(update: Update, context: CallbackContext) -> None:
-#     user_id = update.message.from_user.id
-#     if BotUser.objects.filter(telegram_id=user_id).exists():
-#         question = ' '.join(context.args)
-#         if question:
-#             events.speakers[-1].questions.append((user_id, question))
-#             update.message.reply_text("Ваш вопрос отправлен докладчику.")
-#         else:
-#             update.message.reply_text("Пожалуйста, укажите вопрос после команды.")
-#     else:
-#         update.message.reply_text("Сначала зарегистрируйтесь с помощью /register.")
 
 
 def donate(update: Update, context: CallbackContext) -> None:
@@ -106,10 +96,60 @@ def donate(update: Update, context: CallbackContext) -> None:
     keyboard = []
     for speaker in speakers:
         keyboard.append(
-            [InlineKeyboardButton(f"{speaker.name} - {speaker.username}", callback_data=f'donate_{speaker.id}')])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Выберите спикера для доната:", reply_markup=reply_markup)
+            [InlineKeyboardButton(f"{speaker.name} - {speaker.username}", callback_data=f'donate_{speaker.telegram_id}')])
 
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.callback_query.message.reply_text("Выберите спикера для доната:", reply_markup=reply_markup)
+
+
+def handle_donation_amount(update: Update, context: CallbackContext) -> None:
+    if 'speaker_id' not in context.user_data:
+        update.message.reply_text("Сначала выберите спикера для доната.")
+        return
+
+    amount_text = update.message.text
+    try:
+        amount = float(amount_text)
+
+        if amount <= 0:
+            raise ValueError("Сумма должна быть положительной.")
+
+        speaker_id = context.user_data['speaker_id']
+        donor_id = update.effective_user.id
+
+        donor = BotUser.objects.get(telegram_id=donor_id)
+        speaker = BotUser.objects.get(telegram_id=speaker_id)
+
+        Donation.objects.create(
+            donor=donor,
+            speaker=speaker,
+            amount=amount,
+        )
+
+        payment = Payment.create({
+            "amount": {
+                "value": str(amount),
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": "https://your-redirect-url.com"
+            },
+            "capture": True,
+            "description": f"Донат спикеру ID {speaker_id}",
+            "metadata": {
+                "donor_id": donor_id,
+                "speaker_id": speaker_id,
+            }
+        }, uuid.uuid4())
+
+        update.message.reply_text(f"Перейдите по ссылке для оплаты: {payment.confirmation.confirmation_url}")
+
+    except ValueError as e:
+        update.message.reply_text(f"Ошибка: {e}. Пожалуйста, введите корректную сумму.")
+
+    except Exception as e:
+        update.message.reply_text(f"Произошла ошибка при создании платежа: временные проблемы на стороне Юкасса. Попробуйте еще раз!")
 
 
 def main() -> None:
@@ -125,13 +165,9 @@ def main() -> None:
 
     dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 
-    # dispatcher.add_handler(CommandHandler("register", register_user))
-    #
-    # dispatcher.add_handler(CommandHandler("schedule", get_schedule))
-    #
-    # dispatcher.add_handler(CommandHandler("ask", ask_question))
-    #
-    # dispatcher.add_handler(CommandHandler("donate", donate))
+    dispatcher.add_handler(CommandHandler("donate", donate))
+
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_donation_amount))
 
     updater.start_polling()
     updater.idle()

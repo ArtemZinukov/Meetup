@@ -27,6 +27,6 @@ class ScheduleAdmin(admin.ModelAdmin):
 
 @admin.register(Donation)
 class DonationAdmin(admin.ModelAdmin):
-    list_display = ('user', 'amount')
-    search_fields = ('user__username',)
-    list_filter = ('user',)
+    list_display = ('donor', 'speaker', 'amount')
+    search_fields = ('donor',)
+    list_filter = ('donor',)

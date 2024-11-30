@@ -95,12 +95,15 @@ class Schedule(models.Model):
         verbose_name = 'Расписание'
         verbose_name_plural = 'Расписание'
 
+from django.db import models
+
 class Donation(models.Model):
-    user = models.ForeignKey(BotUser, on_delete=models.CASCADE)
+    donor = models.ForeignKey(BotUser, on_delete=models.CASCADE, related_name='donations_made', verbose_name='Кто задонатил')
+    speaker = models.ForeignKey(BotUser, on_delete=models.CASCADE, related_name='donations_received', verbose_name='Кому задонатили')
     amount = models.PositiveIntegerField(verbose_name='Сумма доната')
 
     def __str__(self):
-        return f'{self.user} - {self.amount}'
+        return f'{self.donor} задонатил {self.amount} руб. спикеру {self.speaker}'
 
     class Meta:
         verbose_name = 'Донат'
