@@ -9,7 +9,8 @@ import uuid
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
-from .models import BotUser, Donation, Event, Question, Schedule
+from .models import BotUser, Donation, Event, Question
+from .keyboards import listener_keyboard, speaker_keyboard
 from yookassa import Configuration, Payment
 
 Configuration.configure(settings.YOOKASSA_SHOP_ID,
@@ -58,23 +59,12 @@ def get_main_menu(update: Update):
     user = BotUser.objects.get(telegram_id=telegram_id)
 
     if user.role == 'listener':
-        keyboard = [
-            [InlineKeyboardButton('Задать вопрос', callback_data='handle_ask_question')],
-            [InlineKeyboardButton('Посмотреть программу', callback_data='view_program')],
-            [InlineKeyboardButton('Знакомства', callback_data='networking')],
-            [InlineKeyboardButton('Поддержать мероприятие', callback_data='donate')],
-        ]
-        return InlineKeyboardMarkup(keyboard)
+        keyboard = listener_keyboard()
+        return keyboard
 
     elif user.role == 'speaker':
-        keyboard = [
-            [InlineKeyboardButton('Ответить на вопросы', callback_data='answer_questions')],
-            [InlineKeyboardButton('Посмотреть программу', callback_data='view_program')],
-            [InlineKeyboardButton('Задать вопрос', callback_data='handle_ask_question')],
-            [InlineKeyboardButton('Знакомства', callback_data='networking')],
-            [InlineKeyboardButton('Поддержать мероприятие', callback_data='donate')],
-        ]
-        return InlineKeyboardMarkup(keyboard)
+        keyboard = speaker_keyboard()
+        return keyboard
 
 
 def handle_ask_question(update: Update, context: CallbackContext):
@@ -150,7 +140,7 @@ def handle_question_message(update: Update, context: CallbackContext):
 
 
 def view_program(update: Update, context: CallbackContext) -> None:
-    programs = Schedule.objects.all()
+    programs = Event.objects.all().order_by('start_time')
 
     if not programs:
         update.callback_query.message.reply_text("Программа еще не создана.")
@@ -159,11 +149,14 @@ def view_program(update: Update, context: CallbackContext) -> None:
     program_text = "Программа мероприятия:\n\n"
     for program in programs:
         start_time = program.start_time.strftime("%H:%M")
-        end_time = program.end_time.strftime("%H:%M")
-        program_text += (f"{program.event.name}:{program.event.description}\nСпикер:{program.event.speaker.name}"
-                         f"\nВремя: {start_time} - {end_time}\n\n")
+        program_text += (f"*{program.name}* : _{program.description}_\nСпикер : *{program.speaker.name}*"
+                         f"\nВремя начала выступления : *{start_time}*\n\n")
 
-    update.callback_query.message.reply_text(program_text)
+    update.callback_query.message.reply_text(
+        program_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_main_menu(update)
+    )
 
 
 def handle_callback(update: Update, context: CallbackContext):

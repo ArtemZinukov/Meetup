@@ -44,21 +44,20 @@ class Event(models.Model):
         verbose_name='Описание выступления',
         blank=True)
     start_time = models.DateTimeField(
-        verbose_name='Запланированное время - начало')
-    end_time = models.DateTimeField(
-        verbose_name='Запланированное время - конец')
+        verbose_name='Время начала события')
     speaker = models.ForeignKey(
         BotUser,
         on_delete=models.CASCADE,
         related_name='speaking_events')
     is_active_event = models.BooleanField(
             default=False,
-            verbose_name='Статус активного спикера',)
+            verbose_name='Статус активного события',)
 
     def __str__(self):
         return f'{self.speaker} - {self.name}'
 
     class Meta:
+        ordering = ['start_time']
         verbose_name = "Событие"
         verbose_name_plural = "События"
 
@@ -80,20 +79,6 @@ class Question(models.Model):
     class Meta:
         verbose_name = 'Вопрос'
         verbose_name_plural = 'Вопросы'
-
-
-class Schedule(models.Model):
-    start_time = models.DateTimeField(verbose_name='Время начала события')
-    end_time = models.DateTimeField(verbose_name='Время окончания события')
-    user = models.ForeignKey(BotUser, on_delete=models.CASCADE)
-    event = models.ForeignKey(Event, on_delete=models.CASCADE)
-
-    def __str__(self):
-        return f'{self.start_time} - {self.user} - {self.event}'
-
-    class Meta:
-        verbose_name = 'Расписание'
-        verbose_name_plural = 'Расписание'
 
 
 class Donation(models.Model):
