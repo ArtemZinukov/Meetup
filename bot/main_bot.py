@@ -1,3 +1,5 @@
+import logging
+
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 
@@ -16,6 +18,9 @@ from yookassa import Configuration, Payment
 Configuration.configure(settings.YOOKASSA_SHOP_ID,
                         settings.YOOKASSA_SECRET_KEY)
 
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def start(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
@@ -137,6 +142,41 @@ def handle_question_message(update: Update, context: CallbackContext):
     )
 
     context.user_data.pop('active_event_id', None)
+
+
+def handle_answer_questions(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    query.answer()
+
+    telegram_id = update.effective_user.id
+    user = BotUser.objects.get(telegram_id=telegram_id)
+
+    active_event = Event.objects.filter(is_active_event=True, speaker=user).first()
+
+    if not active_event:
+        query.edit_message_text(
+            'На данный момент нет активного события для вас.',
+            reply_markup=get_main_menu(update)
+        )
+        return
+
+    questions = Question.objects.filter(event=active_event)
+
+    if not questions.exists():
+        query.edit_message_text(
+            'На данный момент нет вопросов для вас.',
+            reply_markup=get_main_menu(update)
+        )
+        return
+
+    message = 'Вопросы от слушателей:\n\n'
+    for idx, question in enumerate(questions, 1):
+        message += f"{idx}. {question.text}\n"
+
+    query.edit_message_text(
+        message,
+        reply_markup=get_main_menu(update)
+    )
 
 
 def view_program(update: Update, context: CallbackContext) -> None:
@@ -261,6 +301,8 @@ def main() -> None:
     dispatcher.add_handler(CallbackQueryHandler(handle_ask_question, pattern="^handle_ask_question$"))
 
     dispatcher.add_handler(CallbackQueryHandler(view_program, pattern="^view_program$"))
+
+    dispatcher.add_handler(CallbackQueryHandler(handle_answer_questions, pattern="^answer_questions$"))
 
     dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 

@@ -23,6 +23,9 @@ class EventAdmin(admin.ModelAdmin):
     list_filter = ('is_active_event', 'speaker')
 
     def save_model(self, request, obj, form, change):
+        if obj.is_active_event:
+            Event.objects.exclude(pk=obj.pk).update(is_active_event=False)
+
         if change:
             old_obj = Event.objects.get(pk=obj.pk)
             old_values = {
