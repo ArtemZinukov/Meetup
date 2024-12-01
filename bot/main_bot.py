@@ -225,13 +225,28 @@ def handle_donation_amount(update: Update, context: CallbackContext) -> None:
             }
         }, uuid.uuid4())
 
-        update.message.reply_text(f"Перейдите по ссылке для оплаты: {payment.confirmation.confirmation_url}")
+        update.message.reply_text(
+            f"Перейдите по ссылке для оплаты: {payment.confirmation.confirmation_url}",
+            reply_markup=get_main_menu(update)
+        )
 
     except ValueError as e:
         update.message.reply_text(f"Ошибка: {e}. Пожалуйста, введите корректную сумму.")
 
     except Exception as e:
         update.message.reply_text(f"Произошла ошибка при создании платежа: временные проблемы на стороне Юкасса. Попробуйте еще раз!")
+
+
+def message_router(update: Update, context: CallbackContext):
+    if 'active_event_id' in context.user_data:
+        handle_question_message(update, context)
+    elif 'speaker_id' in context.user_data:
+        handle_donation_amount(update, context)
+    else:
+        update.message.reply_text(
+            "Пожалуйста, выберите действие из меню.",
+            reply_markup=get_main_menu(update)
+        )
 
 
 def main() -> None:
@@ -247,13 +262,11 @@ def main() -> None:
 
     dispatcher.add_handler(CallbackQueryHandler(view_program, pattern="^view_program$"))
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_callback, pattern="^handle_callback$"))
+    dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 
     dispatcher.add_handler(CommandHandler("donate", donate))
 
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_question_message))
-
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_donation_amount))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, message_router))
 
     updater.start_polling()
     updater.idle()
