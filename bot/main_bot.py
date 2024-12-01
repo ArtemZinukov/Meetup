@@ -1,5 +1,5 @@
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 
 from django.conf import settings
 import os
@@ -9,7 +9,7 @@ import uuid
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
-from .models import BotUser, Donation, Schedule
+from .models import BotUser, Donation, Event, Question, Schedule
 from yookassa import Configuration, Payment
 
 Configuration.configure(settings.YOOKASSA_SHOP_ID,
@@ -22,52 +22,131 @@ def start(update: Update, context: CallbackContext) -> None:
 
     user, created = BotUser.objects.get_or_create(
         telegram_id=telegram_id,
-        defaults={'role': 'listener'}
+        defaults={'role': 'listener', 'username': username}
     )
 
     if created:
         update.message.reply_text(
-            "Приветствуем вас на мероприятии Meetup! "
-            "Вы зарегистрированы как слушатель. Вы можете задать вопросы спикерам, участвовать в нетворкинге, "
-            "а также поддержать мероприятие с помощью донатов."
+            'Приветствуем вас на мероприятии *Meetup*! \n\n'
+            'Вы зарегистрированы как слушатель. \n\n'
+            'Вы можете задать вопросы спикерам, участвовать в нетворкинге, '
+            'а также поддержать мероприятие с помощью *донатов*.',
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_menu(update)
         )
     else:
         if user.role == 'listener':
-            send_listener_welcome(update, context, user)
+            update.message.reply_text(
+                f'Добро пожаловать, *{user.username}*! \n\n'
+                'Вы можете задавать вопросы спикерам, участвовать в знакомствах и следить за программой мероприятия.\n\n'
+                'Выберите, что вы хотите сделать:',
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_main_menu(update)
+            )
         elif user.role == 'speaker':
-            send_speaker_welcome(update, context, user)
+            update.message.reply_text(
+                f'Добро пожаловать, *{user.username}*! \n\n'
+                'Вы зарегистрированы как *спикер*.\n\n'
+                'Вам доступны следующие действия:',
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_main_menu(update)
+            )
 
 
-def send_listener_welcome(update: Update, context: CallbackContext, user: BotUser):
-    keyboard = [
-        [InlineKeyboardButton("Задать вопрос", callback_data="ask_question")],
-        [InlineKeyboardButton("Посмотреть программу", callback_data="view_program")],
-        [InlineKeyboardButton("Знакомства", callback_data="networking")],
-        [InlineKeyboardButton("Поддержать мероприятие", callback_data="donate")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+def get_main_menu(update: Update):
+    telegram_id = update.effective_user.id
+    user = BotUser.objects.get(telegram_id=telegram_id)
 
-    update.message.reply_text(
-        f"Добро пожаловать, {user.name}! "
-        "Вы можете задавать вопросы спикерам, участвовать в знакомствах и следить за программой мероприятия.\n\n"
-        "Выберите, что вы хотите сделать:",
-        reply_markup=reply_markup
+    if user.role == 'listener':
+        keyboard = [
+            [InlineKeyboardButton('Задать вопрос', callback_data='handle_ask_question')],
+            [InlineKeyboardButton('Посмотреть программу', callback_data='view_program')],
+            [InlineKeyboardButton('Знакомства', callback_data='networking')],
+            [InlineKeyboardButton('Поддержать мероприятие', callback_data='donate')],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    elif user.role == 'speaker':
+        keyboard = [
+            [InlineKeyboardButton('Ответить на вопросы', callback_data='answer_questions')],
+            [InlineKeyboardButton('Посмотреть программу', callback_data='view_program')],
+            [InlineKeyboardButton('Задать вопрос', callback_data='handle_ask_question')],
+            [InlineKeyboardButton('Знакомства', callback_data='networking')],
+            [InlineKeyboardButton('Поддержать мероприятие', callback_data='donate')],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+
+def handle_ask_question(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    active_event = Event.objects.filter(is_active_event=True).first()
+
+    if not active_event:
+        query.edit_message_text(
+            'Выступление закончилось. Попробуйте задать вопрос позже.',
+            reply_markup=get_main_menu(update)
+        )
+        return
+
+    context.user_data['active_event_id'] = active_event.id
+
+    query.edit_message_text(
+        f'Сейчас выступает спикер *{active_event.speaker.username}* с докладом: *{active_event.name}*.\n\n'
+        'Пожалуйста, напишите ваш вопрос в ответ на это сообщение.',
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
-def send_speaker_welcome(update: Update, context: CallbackContext, user: BotUser):
-    keyboard = [
-        [InlineKeyboardButton("Ответить на вопросы", callback_data="answer_questions")],
-        [InlineKeyboardButton("Посмотреть программу", callback_data="view_program")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+def handle_question_message(update: Update, context: CallbackContext):
+    active_event_id = context.user_data.get('active_event_id')
+
+    if not active_event_id:
+        update.message.reply_text(
+            'Не удалось определить текущее выступление. Пожалуйста, нажмите \'Задать вопрос\' снова.',
+            reply_markup=get_main_menu(update)
+        )
+        return
+
+    try:
+        active_event = Event.objects.get(id=active_event_id, is_active_event=True)
+    except Event.DoesNotExist:
+        update.message.reply_text(
+            'К сожалению, выступление завершилось.',
+            reply_markup=get_main_menu(update)
+        )
+        context.user_data.pop('active_event_id', None)
+        return
+
+    try:
+        user = BotUser.objects.get(telegram_id=update.effective_user.id)
+    except BotUser.DoesNotExist:
+        update.message.reply_text(
+            'Ошибка: ваш профиль не найден. Пожалуйста, используйте команду /start для регистрации.'
+        )
+        return
+
+    question_text = update.message.text.strip()
+
+    if not question_text:
+        update.message.reply_text('Пожалуйста, напишите ваш вопрос.')
+        return
+
+    Question.objects.create(
+        user=user,
+        event=active_event,
+        text=question_text
+    )
 
     update.message.reply_text(
-        f"Добро пожаловать, {user.name}! "
-        "Вы зарегистрированы как спикер.\n\n"
-        "Вам доступны следующие действия:",
-        reply_markup=reply_markup
+        f'Ваш вопрос передан спикеру *{active_event.speaker.username}* \n\n'
+        'Спикер ответит на вопросы после завершения доклада.',
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_main_menu(update)
     )
+
+    context.user_data.pop('active_event_id', None)
 
 
 def view_program(update: Update, context: CallbackContext) -> None:
@@ -91,11 +170,7 @@ def handle_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    if query.data == "ask_question":
-        query.edit_message_text("Напишите ваш вопрос. Укажите тему и содержание.")
-    elif query.data == "view_program":
-        view_program(update, context)
-    elif query.data == "networking":
+    if query.data == "networking":
         query.edit_message_text("Сейчас загрузим анкеты для знакомств...")
     elif query.data == "donate":
         donate(update, context)
@@ -103,8 +178,6 @@ def handle_callback(update: Update, context: CallbackContext):
         speaker_id = query.data.split("_")[1]
         context.user_data['speaker_id'] = speaker_id
         query.edit_message_text("Сколько вы хотите задонатить? Пожалуйста, укажите сумму в рублях.")
-    elif query.data == "answer_questions":
-        query.edit_message_text("Сейчас загрузим вопросы, поступившие от слушателей...")
 
 
 def donate(update: Update, context: CallbackContext) -> None:
@@ -177,9 +250,15 @@ def main() -> None:
 
     dispatcher.add_handler(CommandHandler("start", start))
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_callback))
+    dispatcher.add_handler(CallbackQueryHandler(handle_ask_question, pattern="^handle_ask_question$"))
+
+    dispatcher.add_handler(CallbackQueryHandler(view_program, pattern="^view_program$"))
+
+    dispatcher.add_handler(CallbackQueryHandler(handle_callback, pattern="^handle_callback$"))
 
     dispatcher.add_handler(CommandHandler("donate", donate))
+
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_question_message))
 
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_donation_amount))
 
