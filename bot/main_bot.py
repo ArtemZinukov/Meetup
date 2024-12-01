@@ -4,13 +4,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from django.conf import settings
 import os
 import django
-from environs import Env
 import uuid
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
-from .models import BotUser, Donation
+from .models import BotUser, Donation, Schedule
 from yookassa import Configuration, Payment
 
 Configuration.configure(settings.YOOKASSA_SHOP_ID,
@@ -71,6 +70,23 @@ def send_speaker_welcome(update: Update, context: CallbackContext, user: BotUser
     )
 
 
+def view_program(update: Update, context: CallbackContext) -> None:
+    programs = Schedule.objects.all()
+
+    if not programs:
+        update.callback_query.message.reply_text("Программа еще не создана.")
+        return
+
+    program_text = "Программа мероприятия:\n\n"
+    for program in programs:
+        start_time = program.start_time.strftime("%H:%M")
+        end_time = program.end_time.strftime("%H:%M")
+        program_text += (f"{program.event.name}:{program.event.description}\nСпикер:{program.event.speaker.name}"
+                         f"\nВремя: {start_time} - {end_time}\n\n")
+
+    update.callback_query.message.reply_text(program_text)
+
+
 def handle_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -78,7 +94,7 @@ def handle_callback(update: Update, context: CallbackContext):
     if query.data == "ask_question":
         query.edit_message_text("Напишите ваш вопрос. Укажите тему и содержание.")
     elif query.data == "view_program":
-        query.edit_message_text("Программа мероприятия:\n1. Открытие\n2. Первый доклад\n...")
+        view_program(update, context)
     elif query.data == "networking":
         query.edit_message_text("Сейчас загрузим анкеты для знакомств...")
     elif query.data == "donate":
@@ -153,9 +169,7 @@ def handle_donation_amount(update: Update, context: CallbackContext) -> None:
 
 
 def main() -> None:
-    env = Env()
-    env.read_env()
-    token = env.str("TG_BOT_TOKEN")
+    token = settings.TELEGRAM_BOT_TOKEN
 
     updater = Updater(token)
 

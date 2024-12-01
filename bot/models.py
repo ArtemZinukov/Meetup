@@ -95,7 +95,6 @@ class Schedule(models.Model):
         verbose_name = 'Расписание'
         verbose_name_plural = 'Расписание'
 
-from django.db import models
 
 class Donation(models.Model):
     donor = models.ForeignKey(BotUser, on_delete=models.CASCADE, related_name='donations_made', verbose_name='Кто задонатил')
