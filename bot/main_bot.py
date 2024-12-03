@@ -1,5 +1,7 @@
 import logging
 
+import random
+
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 
@@ -192,7 +194,7 @@ def view_program(update: Update, context: CallbackContext) -> None:
         program_text += (f"*{program.name}* : _{program.description}_\nСпикер : *{program.speaker.name}*"
                          f"\nВремя начала выступления : *{start_time}*\n\n")
 
-    update.callback_query.message.reply_text(
+    update.callback_query.edit_message_text(
         program_text,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=get_main_menu(update)
@@ -204,13 +206,91 @@ def handle_callback(update: Update, context: CallbackContext):
     query.answer()
 
     if query.data == "networking":
-        query.edit_message_text("Сейчас загрузим анкеты для знакомств...")
+        handle_networking(update, context)
+    elif query.data in ['consent_yes', 'consent_no']:
+        handle_consent_response(update, context)
     elif query.data == "donate":
         donate(update, context)
     elif query.data.startswith("donate_"):
         speaker_id = query.data.split("_")[1]
         context.user_data['speaker_id'] = speaker_id
         query.edit_message_text("Сколько вы хотите задонатить? Пожалуйста, укажите сумму в рублях.")
+
+
+def handle_networking(update: Update, context: CallbackContext):
+    query = update.callback_query
+    telegram_id = update.effective_user.id
+
+    user = BotUser.objects.get(telegram_id=telegram_id)
+
+    if user.consent_given:
+        send_random_user(update, context, user)
+    else:
+        send_consent_request(update, context)
+
+
+def send_random_user(update: Update, context: CallbackContext, current_user: BotUser):
+    other_users = BotUser.objects.filter(consent_given=True).exclude(telegram_id=current_user.telegram_id)
+    if other_users.exists():
+        random_user = random.choice(list(other_users))
+        message = (
+            f"Вот Telegram ID для знакомства: `{random_user.telegram_id}`\n"
+            f"Username: @{random_user.username}"
+        )
+        update.callback_query.edit_message_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_menu(update)
+        )
+
+    else:
+        query = update.callback_query
+        query.edit_message_text(
+            'К сожалению, нет других пользователей для знакомства в данный момент.',
+            reply_markup=get_main_menu(update)
+        )
+
+
+def send_consent_request(update: Update, context: CallbackContext):
+    query = update.callback_query
+    consent_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('Да', callback_data='consent_yes')],
+        [InlineKeyboardButton('Нет', callback_data='consent_no')],
+    ])
+    query.edit_message_text(
+            "Для участия в знакомствах необходимо ваше согласие на обработку персональных данных. Вы согласны?",
+            reply_markup=consent_keyboard
+    )
+
+
+def handle_consent_response(update: Update, context: CallbackContext):
+    query = update.callback_query
+    telegram_id = update.effective_user.id
+
+    user = BotUser.objects.get(telegram_id=telegram_id)
+
+    if query.data == 'consent_yes':
+        user.consent_given = True
+        user.save()
+        logger.info(f"Пользователь {user.username} (ID: {telegram_id}) дал согласие на обработку данных.")
+        message = (
+            "Спасибо за согласие! Теперь вы можете использовать функцию знакомств.\n"
+            f"Ваш Telegram ID: `{user.telegram_id}`\n"
+            "Используйте его для связи с другими участниками."
+        )
+        query.edit_message_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_menu(update)
+        )
+
+    elif query.data == 'consent_no':
+        logger.info(f"Пользователь {user.username} (ID: {telegram_id}) отказался от согласия на обработку данных.")
+        message = "К сожалению, без вашего согласия мы не можем предоставить функцию знакомств."
+        query.edit_message_text(
+            message,
+            reply_markup=get_main_menu(update)
+        )
 
 
 def donate(update: Update, context: CallbackContext) -> None:
@@ -303,6 +383,8 @@ def main() -> None:
     dispatcher.add_handler(CallbackQueryHandler(view_program, pattern="^view_program$"))
 
     dispatcher.add_handler(CallbackQueryHandler(handle_answer_questions, pattern="^answer_questions$"))
+
+    dispatcher.add_handler(CallbackQueryHandler(handle_consent_response, pattern="^(consent_yes|consent_no)$"))
 
     dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 
