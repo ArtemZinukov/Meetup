@@ -2,6 +2,7 @@ import logging
 
 import random
 
+from telegram.error import BadRequest
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 
@@ -234,14 +235,23 @@ def send_random_user(update: Update, context: CallbackContext, current_user: Bot
     if other_users.exists():
         random_user = random.choice(list(other_users))
         message = (
-            f"Вот Telegram ID для знакомства: `{random_user.telegram_id}`\n"
+            f"Вот Telegram ID для знакомства: <code>{random_user.telegram_id}</code>\n"
             f"Username: @{random_user.username}"
         )
-        update.callback_query.edit_message_text(
-            message,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_main_menu(update)
-        )
+        try:
+            update.callback_query.edit_message_text(
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_main_menu(update)
+            )
+        except BadRequest as e:
+            logger.error(f"Ошибка при редактировании сообщения: {e}")
+            # Отправить новое сообщение, если редактирование не удалось
+            update.callback_query.message.reply_text(
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_main_menu(update)
+            )
 
     else:
         query = update.callback_query
@@ -275,12 +285,12 @@ def handle_consent_response(update: Update, context: CallbackContext):
         logger.info(f"Пользователь {user.username} (ID: {telegram_id}) дал согласие на обработку данных.")
         message = (
             "Спасибо за согласие! Теперь вы можете использовать функцию знакомств.\n"
-            f"Ваш Telegram ID: `{user.telegram_id}`\n"
+            f"Ваш Telegram ID: <code>{user.telegram_id}</code>\n"
             "Используйте его для связи с другими участниками."
         )
         query.edit_message_text(
             message,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=get_main_menu(update)
         )
 
@@ -291,7 +301,6 @@ def handle_consent_response(update: Update, context: CallbackContext):
             message,
             reply_markup=get_main_menu(update)
         )
-
 
 def donate(update: Update, context: CallbackContext) -> None:
     speakers = BotUser.objects.filter(role='speaker')
