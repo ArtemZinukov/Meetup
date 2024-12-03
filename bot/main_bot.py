@@ -1,22 +1,24 @@
 import logging
-
-import random
-
-from telegram.error import BadRequest
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-
-from django.conf import settings
 import os
-import django
+import random
 import uuid
+
+import django
+from django.conf import settings
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, ParseMode,
+                      Update)
+from telegram.error import BadRequest
+from telegram.ext import (CallbackContext, CallbackQueryHandler,
+                          CommandHandler, Filters, MessageHandler, Updater)
+from yookassa import Configuration, Payment
+
+from .keyboards import listener_keyboard, speaker_keyboard
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'meetup.settings')
 django.setup()
 
 from .models import BotUser, Donation, Event, Question
-from .keyboards import listener_keyboard, speaker_keyboard
-from yookassa import Configuration, Payment
+
 
 Configuration.configure(settings.YOOKASSA_SHOP_ID,
                         settings.YOOKASSA_SECRET_KEY)
@@ -24,6 +26,7 @@ Configuration.configure(settings.YOOKASSA_SHOP_ID,
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 def start(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
@@ -47,7 +50,8 @@ def start(update: Update, context: CallbackContext) -> None:
         if user.role == 'listener':
             update.message.reply_text(
                 f'Добро пожаловать, *{user.username}*! \n\n'
-                'Вы можете задавать вопросы спикерам, участвовать в знакомствах и следить за программой мероприятия.\n\n'
+                'Вы можете задавать вопросы спикерам, участвовать в'
+                'знакомствах и следить за программой мероприятия.\n\n'
                 'Выберите, что вы хотите сделать:',
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_main_menu(update)
@@ -91,7 +95,8 @@ def handle_ask_question(update: Update, context: CallbackContext):
     context.user_data['active_event_id'] = active_event.id
 
     query.edit_message_text(
-        f'Сейчас выступает спикер *{active_event.speaker.username}* с докладом: *{active_event.name}*.\n\n'
+        f'Сейчас выступает спикер *{active_event.speaker.username}* '
+        f'с докладом:*{active_event.name}*.\n\n'
         'Пожалуйста, напишите ваш вопрос в ответ на это сообщение.',
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -102,13 +107,17 @@ def handle_question_message(update: Update, context: CallbackContext):
 
     if not active_event_id:
         update.message.reply_text(
-            'Не удалось определить текущее выступление. Пожалуйста, нажмите \'Задать вопрос\' снова.',
+            'Не удалось определить текущее выступление. '
+            'Пожалуйста, нажмите \'Задать вопрос\' снова.',
             reply_markup=get_main_menu(update)
         )
         return
 
     try:
-        active_event = Event.objects.get(id=active_event_id, is_active_event=True)
+        active_event = Event.objects.get(
+            id=active_event_id,
+            is_active_event=True
+        )
     except Event.DoesNotExist:
         update.message.reply_text(
             'К сожалению, выступление завершилось.',
@@ -121,7 +130,8 @@ def handle_question_message(update: Update, context: CallbackContext):
         user = BotUser.objects.get(telegram_id=update.effective_user.id)
     except BotUser.DoesNotExist:
         update.message.reply_text(
-            'Ошибка: ваш профиль не найден. Пожалуйста, используйте команду /start для регистрации.'
+            'Ошибка: ваш профиль не найден. Пожалуйста, '
+            'используйте команду /start для регистрации.'
         )
         return
 
@@ -154,7 +164,10 @@ def handle_answer_questions(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
     user = BotUser.objects.get(telegram_id=telegram_id)
 
-    active_event = Event.objects.filter(is_active_event=True, speaker=user).first()
+    active_event = Event.objects.filter(
+        is_active_event=True,
+        speaker=user
+    ).first()
 
     if not active_event:
         query.edit_message_text(
@@ -192,7 +205,8 @@ def view_program(update: Update, context: CallbackContext) -> None:
     program_text = "Программа мероприятия:\n\n"
     for program in programs:
         start_time = program.start_time.strftime("%H:%M")
-        program_text += (f"*{program.name}* : _{program.description}_\nСпикер : *{program.speaker.name}*"
+        program_text += (f"*{program.name}* : _{program.description}_\n"
+                         f"Спикер : *{program.speaker.name}*"
                          f"\nВремя начала выступления : *{start_time}*\n\n")
 
     update.callback_query.edit_message_text(
@@ -215,11 +229,11 @@ def handle_callback(update: Update, context: CallbackContext):
     elif query.data.startswith("donate_"):
         speaker_id = query.data.split("_")[1]
         context.user_data['speaker_id'] = speaker_id
-        query.edit_message_text("Сколько вы хотите задонатить? Пожалуйста, укажите сумму в рублях.")
+        query.edit_message_text("Сколько вы хотите задонатить? "
+                                "Пожалуйста, укажите сумму в рублях.")
 
 
 def handle_networking(update: Update, context: CallbackContext):
-    query = update.callback_query
     telegram_id = update.effective_user.id
 
     user = BotUser.objects.get(telegram_id=telegram_id)
@@ -231,11 +245,15 @@ def handle_networking(update: Update, context: CallbackContext):
 
 
 def send_random_user(update: Update, context: CallbackContext, current_user: BotUser):
-    other_users = BotUser.objects.filter(consent_given=True).exclude(telegram_id=current_user.telegram_id)
+    other_users = BotUser.objects.filter(consent_given=True).exclude(
+        telegram_id=current_user.telegram_id
+    )
+
     if other_users.exists():
         random_user = random.choice(list(other_users))
         message = (
-            f"Вот Telegram ID для знакомства: <code>{random_user.telegram_id}</code>\n"
+            "Вот Telegram ID для знакомства: "
+            f"<code>{random_user.telegram_id}</code>\n"
             f"Username: @{random_user.username}"
         )
         try:
@@ -246,7 +264,6 @@ def send_random_user(update: Update, context: CallbackContext, current_user: Bot
             )
         except BadRequest as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            # Отправить новое сообщение, если редактирование не удалось
             update.callback_query.message.reply_text(
                 message,
                 parse_mode=ParseMode.HTML,
@@ -256,7 +273,8 @@ def send_random_user(update: Update, context: CallbackContext, current_user: Bot
     else:
         query = update.callback_query
         query.edit_message_text(
-            'К сожалению, нет других пользователей для знакомства в данный момент.',
+            'К сожалению, нет других пользователей '
+            'для знакомства в данный момент.',
             reply_markup=get_main_menu(update)
         )
 
@@ -268,7 +286,8 @@ def send_consent_request(update: Update, context: CallbackContext):
         [InlineKeyboardButton('Нет', callback_data='consent_no')],
     ])
     query.edit_message_text(
-            "Для участия в знакомствах необходимо ваше согласие на обработку персональных данных. Вы согласны?",
+            "Для участия в знакомствах необходимо ваше согласие на обработку "
+            "персональных данных. Вы согласны?",
             reply_markup=consent_keyboard
     )
 
@@ -282,9 +301,11 @@ def handle_consent_response(update: Update, context: CallbackContext):
     if query.data == 'consent_yes':
         user.consent_given = True
         user.save()
-        logger.info(f"Пользователь {user.username} (ID: {telegram_id}) дал согласие на обработку данных.")
+        logger.info(f"Пользователь {user.username} (ID: {telegram_id}) дал "
+                    "согласие на обработку данных.")
         message = (
-            "Спасибо за согласие! Теперь вы можете использовать функцию знакомств.\n"
+            "Спасибо за согласие! Теперь вы можете "
+            "использовать функцию знакомств.\n"
             f"Ваш Telegram ID: <code>{user.telegram_id}</code>\n"
             "Используйте его для связи с другими участниками."
         )
@@ -295,22 +316,31 @@ def handle_consent_response(update: Update, context: CallbackContext):
         )
 
     elif query.data == 'consent_no':
-        logger.info(f"Пользователь {user.username} (ID: {telegram_id}) отказался от согласия на обработку данных.")
-        message = "К сожалению, без вашего согласия мы не можем предоставить функцию знакомств."
+        logger.info(f"Пользователь {user.username} (ID: {telegram_id}) "
+                    "отказался от согласия на обработку данных.")
+        message = ("К сожалению, без вашего согласия мы не можем предоставить"
+                   " функцию знакомств.")
         query.edit_message_text(
             message,
             reply_markup=get_main_menu(update)
         )
+
 
 def donate(update: Update, context: CallbackContext) -> None:
     speakers = BotUser.objects.filter(role='speaker')
     keyboard = []
     for speaker in speakers:
         keyboard.append(
-            [InlineKeyboardButton(f"{speaker.name} - {speaker.username}", callback_data=f'donate_{speaker.telegram_id}')])
+            [InlineKeyboardButton(
+                f"{speaker.name} - {speaker.username}",
+                callback_data=f'donate_{speaker.telegram_id}')]
+        )
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.callback_query.message.reply_text("Выберите спикера для доната:", reply_markup=reply_markup)
+    update.callback_query.message.reply_text(
+        "Выберите спикера для доната:",
+        reply_markup=reply_markup
+    )
 
 
 def handle_donation_amount(update: Update, context: CallbackContext) -> None:
@@ -355,15 +385,19 @@ def handle_donation_amount(update: Update, context: CallbackContext) -> None:
         }, uuid.uuid4())
 
         update.message.reply_text(
-            f"Перейдите по ссылке для оплаты: {payment.confirmation.confirmation_url}",
+            "Перейдите по ссылке для оплаты: "
+            f"{payment.confirmation.confirmation_url}",
             reply_markup=get_main_menu(update)
         )
 
     except ValueError as e:
-        update.message.reply_text(f"Ошибка: {e}. Пожалуйста, введите корректную сумму.")
+        update.message.reply_text(f"Ошибка: {e}. Пожалуйста, введите "
+                                  "корректную сумму.")
 
-    except Exception as e:
-        update.message.reply_text(f"Произошла ошибка при создании платежа: временные проблемы на стороне Юкасса. Попробуйте еще раз!")
+    except Exception:
+        update.message.reply_text('Произошла ошибка при создании платежа: '
+                                  'временные проблемы на стороне Юкасса. '
+                                  'Попробуйте еще раз!')
 
 
 def message_router(update: Update, context: CallbackContext):
@@ -387,19 +421,34 @@ def main() -> None:
 
     dispatcher.add_handler(CommandHandler("start", start))
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_ask_question, pattern="^handle_ask_question$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        handle_ask_question,
+        pattern="^handle_ask_question$")
+    )
 
-    dispatcher.add_handler(CallbackQueryHandler(view_program, pattern="^view_program$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        view_program,
+        pattern="^view_program$")
+    )
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_answer_questions, pattern="^answer_questions$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        handle_answer_questions,
+        pattern="^answer_questions$")
+    )
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_consent_response, pattern="^(consent_yes|consent_no)$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        handle_consent_response,
+        pattern="^(consent_yes|consent_no)$")
+    )
 
     dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 
     dispatcher.add_handler(CommandHandler("donate", donate))
 
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, message_router))
+    dispatcher.add_handler(MessageHandler(
+        Filters.text & ~Filters.command,
+        message_router)
+    )
 
     updater.start_polling()
     updater.idle()
