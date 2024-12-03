@@ -1,6 +1,6 @@
 import logging
 
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 
 from django.conf import settings
@@ -15,12 +15,15 @@ from .models import BotUser, Donation, Event, Question
 from .keyboards import listener_keyboard, speaker_keyboard
 from yookassa import Configuration, Payment
 
+
 Configuration.configure(settings.YOOKASSA_SHOP_ID,
                         settings.YOOKASSA_SECRET_KEY)
 
+NAME, AGE, ABOUT_MYSELF = range(3)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 def start(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
@@ -204,13 +207,132 @@ def handle_callback(update: Update, context: CallbackContext):
     query.answer()
 
     if query.data == "networking":
-        query.edit_message_text("Сейчас загрузим анкеты для знакомств...")
-    elif query.data == "donate":
+        networking(update, context)
+    if query.data == "donate":
         donate(update, context)
     elif query.data.startswith("donate_"):
         speaker_id = query.data.split("_")[1]
         context.user_data['speaker_id'] = speaker_id
         query.edit_message_text("Сколько вы хотите задонатить? Пожалуйста, укажите сумму в рублях.")
+    elif query.data == "pdconsent_refuse":
+        pdconsent_refuse(update, context)
+
+
+def networking(update, context):
+    update.callback_query.message.reply_text(
+        text="Здесь вы можете заполнить анкету о себе и увидеть анкеты других участников.\n")
+    user = BotUser.objects.filter(telegram_id=update.effective_user.id,
+                                  consent_given=True).first()
+    if user:
+        networking_menu(update, context)
+
+    else:
+        doc_path = r'./assets/Согласие на обработку персональных данных.pdf'
+        with open(doc_path, 'rb') as f:
+            context.bot.sendDocument(
+                chat_id=update.effective_chat.id, document=f)
+
+        update.callback_query.message.reply_text(
+            text="Для  дальнейшей работы с данным разделом, пожалуйста, подтвердите согласие на обработку персональных данных",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "✅",
+                    callback_data="networking_fill_out_profile"
+                ),
+                InlineKeyboardButton(
+                    "❌",
+                    callback_data='pdconsent_refuse'
+                ),
+            ]])
+        )
+
+
+def pdconsent_refuse(update, context):
+    update.callback_query.message.reply_text(
+        "К сожалению, без согласия нельзя продолжить заполнение анкеты.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_main_menu(update)
+    )
+
+
+def networking_menu(update, context):
+    update.callback_query.message.reply_text(
+        text="Выберите, что вы хотите сделать:",
+        reply_markup=InlineKeyboardMarkup([[
+            # InlineKeyboardButton(
+            #     "Посмотреть анкету другого участника",
+            #     callback_data="networking_menu"
+            # ),
+            InlineKeyboardButton(
+                "Посмотреть свою анкету",
+                callback_data='networking_fill_out_profile'
+            ),
+        ]])
+    )
+    # Предложить рандомного участника для знакомства
+    # update.callback_query.message.reply_text(
+    #                          text="Сейчас загрузим анкеты для знакомств...\n")
+
+    # Посмотреть свою анкету
+
+        
+def networking_fill_out_profile(update, context):
+    global client_input
+    client_input = {
+        # 'username': update.message.from_user['username'],
+        # 'user_id': update.message.from_user['id'],
+        'consent_given': None,
+        'name': None,
+        'age': None,
+        'about_myself': None,
+    }
+
+    update.callback_query.message.reply_text(text="Напишите ваше имя:")
+    print(context.user_data)
+    return NAME
+
+
+def networking_age(update, context):
+    client_input['name'] = update.message.text.strip()
+    BotUser.objects.filter(telegram_id=update.effective_user.id)\
+        .update(name=client_input['name'])
+    context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Напишите ваш возраст:")
+    return AGE
+
+
+def networking_about_myself(update, context):
+    client_input['age'] = update.message.text.strip()
+    print(client_input['age'])
+    BotUser.objects.filter(telegram_id=update.effective_user.id)\
+        .update(age=client_input['age'])
+    update.callback_query.message.reply_text(
+        text="Напишите пару слов о себе:")
+    return ABOUT_MYSELF
+
+
+def networking_save_my_profile(update, context):
+    client_input['about_myself'] = update.message.text.strip()
+    BotUser.objects.filter(telegram_id=update.effective_user.id)\
+        .update(about_myself=client_input['about_myself'])
+    update.callback_query.message.reply_text(
+        text="Ответы успешно сохранены!")
+    return ConversationHandler.END
+
+
+# def networking_get_others_profile(update, context):
+
+
+# def networking_get_my_profile(update, context):
+
+
+# Обрабатываем команду /cancel если пользователь отменил разговор
+def cancel(update, _):
+    user = update.message.from_user
+    logger.info("Пользователь %s отменил разговор.", user.first_name)
+    # Заканчиваем разговор.
+    return ConversationHandler.END
 
 
 def donate(update: Update, context: CallbackContext) -> None:
@@ -282,6 +404,8 @@ def message_router(update: Update, context: CallbackContext):
         handle_question_message(update, context)
     elif 'speaker_id' in context.user_data:
         handle_donation_amount(update, context)
+    # elif 'networking_age' in context.user_data:
+    #     networking_age(update, context)
     else:
         update.message.reply_text(
             "Пожалуйста, выберите действие из меню.",
@@ -298,17 +422,43 @@ def main() -> None:
 
     dispatcher.add_handler(CommandHandler("start", start))
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_ask_question, pattern="^handle_ask_question$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        handle_ask_question, pattern="^handle_ask_question$"))
 
-    dispatcher.add_handler(CallbackQueryHandler(view_program, pattern="^view_program$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        view_program, pattern="^view_program$"))
 
-    dispatcher.add_handler(CallbackQueryHandler(handle_answer_questions, pattern="^answer_questions$"))
+    dispatcher.add_handler(CallbackQueryHandler(
+        handle_answer_questions, pattern="^answer_questions$"))
+
+    dispatcher.add_handler(CommandHandler("networking", networking))
 
     dispatcher.add_handler(CallbackQueryHandler(handle_callback))
 
     dispatcher.add_handler(CommandHandler("donate", donate))
 
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, message_router))
+    dispatcher.add_handler(MessageHandler(
+        Filters.text & ~Filters.command, message_router))
+
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(networking_fill_out_profile)
+        ],
+
+        states={
+            NAME: [
+                MessageHandler(Filters.text, networking_age)
+            ],
+            AGE: [
+                MessageHandler(Filters.text, networking_about_myself)
+            ],
+            ABOUT_MYSELF: [
+                MessageHandler(Filters.text, networking_save_my_profile)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    dispatcher.add_handler(conv_handler)
 
     updater.start_polling()
     updater.idle()
